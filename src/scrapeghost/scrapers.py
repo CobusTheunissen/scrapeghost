@@ -1,6 +1,8 @@
 import re
 import json
+import os
 import requests
+from scraper_api import ScraperAPIClient
 import lxml.html
 
 from .errors import PreprocessorError
@@ -16,7 +18,7 @@ from .postprocessors import (
 
 class SchemaScraper(OpenAiCall):
     _default_preprocessors: list[Preprocessor] = [
-        CleanHTML(),
+        CleanHTML(attr_whitelist=set(["data-tn"])),
     ]
 
     def __init__(  # type: ignore
@@ -89,8 +91,12 @@ class SchemaScraper(OpenAiCall):
             new_nodes = []
             for node in nodes:
                 new_nodes.extend(p(node))
+            
+            with open(os.path.join('html_dump', 'cleaner.html'), 'w') as f:
+                f.writelines(_tostr(doc))
+
             logger.debug(
-                "preprocessor", name=str(p), from_nodes=len(nodes), nodes=len(new_nodes)
+                "preprocessor", name=str(p), from_nodes=len(nodes), nodes=len(new_nodes), length=_tokens(model='gpt-3.5-turbo', html=_tostr(doc))
             )
             if not new_nodes:
                 raise PreprocessorError(
@@ -169,13 +175,15 @@ def _parse_url_or_html(url_or_html: str) -> lxml.html.Element:
     """
     Given URL or HTML, return lxml.html.Element
     """
+    client = ScraperAPIClient(os.environ['SCRAPERAPI_KEY'])
     # coerce to HTML
     orig_url = None
     if url_or_html.startswith("http"):
         orig_url = url_or_html
-        url_or_html = requests.get(url_or_html).text
+        url_or_html = client.get(url_or_html).text
+        # url_or_html = requests.get(url_or_html).text
     # collapse whitespace
-    url_or_html = re.sub("[ \t]+", " ", url_or_html)
+    url_or_html = re.sub("[ \t]+", " ", url_or_html) # Replace one or more whitespace occurences with single space
     logger.debug("got HTML", length=len(url_or_html), url=orig_url)
     doc = lxml.html.fromstring(url_or_html)
     if orig_url:
@@ -234,30 +242,3 @@ def _pydantic_to_simple_schema(pydantic_model: type) -> dict:
             schema[field.name] = type_name
     return schema
 
-
-# class PaginatedSchemaScraper(SchemaScraper):
-#     def __init__(self, schema: list | str | dict, **kwargs: Any):
-#         schema = {
-#             "results": schema,
-#             "next_link": "url",
-#         }
-#         super().__init__(schema, **kwargs)
-#       self.system_messages.append("If there is no next page, set next_link to null.")
-
-#     def scrape(self, url: str, **kwargs: Any):
-#         results = []
-#         seen_urls = set()
-#         while url:
-#             logger.debug("page", url=url)
-#             page = super().scrape(url, **kwargs)
-#             logger.debug(
-#                 "results",
-#                 next_link=page["next_link"],
-#                 added_results=len(page["results"]),
-#             )
-#             results.extend(page["results"])
-#             seen_urls.add(url)
-#             url = page["next_link"]
-#             if url in seen_urls:
-#                 break
-#         return results
