@@ -18,7 +18,7 @@ from .postprocessors import (
 
 class SchemaScraper(OpenAiCall):
     _default_preprocessors: list[Preprocessor] = [
-        CleanHTML(attr_whitelist=set(["data-tn"])),
+        CleanHTML(attr_whitelist=set(["data-tn", "data-tp"])),
     ]
 
     def __init__(  # type: ignore
